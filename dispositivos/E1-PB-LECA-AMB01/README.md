@@ -9,7 +9,7 @@ Medición de CO2 del aire del laboratorio, con un sensor MH-Z19C y tres LEDs loc
 | **Estado** | en banco: el firmware compila y mide con el sensor y se probaron los LEDs y el zumbador sin red; falta conectarlo al gateway |
 | **Instalado** | todavía no |
 | **Transporte** | mesh ESP-WIFI-MESH (interior), según [ADR-003](../../docs/adr/ADR-003-dos-transportes-mesh-interior-lorawan-exterior.md) y [ADR-006](../../docs/adr/ADR-006-esp-wifi-mesh-reemplaza-a-esp-now-en-interior.md) |
-| **Contrato que implementa** | [`CONTRATO_MQTT.md`](../../docs/CONTRATO_MQTT.md) v4.0 |
+| **Contrato que implementa** | [`CONTRATO_MQTT.md`](../../docs/CONTRATO_MQTT.md) v4.3 |
 | **Basado en** | `Mesh_Red_Completa/Mesh3_Hoja` |
 | **Códigos anteriores** | ninguno |
 
