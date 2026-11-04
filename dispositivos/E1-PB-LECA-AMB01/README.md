@@ -5,8 +5,8 @@ Medición de CO2 del aire del laboratorio, con un sensor MH-Z19C y tres LEDs loc
 | | |
 |---|---|
 | **Ubicación** | Edificio 1, planta baja, LabECA |
-| **Responsable** | Grupo de IC IV 2026 (@AgosBracaccini, <completar con los usuarios del grupo>) |
-| **Estado** | en banco: el firmware compila y mide con el sensor conectado a la placa |
+| **Responsable** | Grupo de IC IV 2026 (AgosBracaccini, JulietaCordoba y luisina-milanese ) |
+| **Estado** | en banco: el firmware compila y mide con el sensor y se probaron los LEDs y el zumbador sin red; falta conectarlo al gateway |
 | **Instalado** | todavía no |
 | **Transporte** | mesh ESP-WIFI-MESH (interior), según [ADR-003](../../docs/adr/ADR-003-dos-transportes-mesh-interior-lorawan-exterior.md) y [ADR-006](../../docs/adr/ADR-006-esp-wifi-mesh-reemplaza-a-esp-now-en-interior.md) |
 | **Contrato que implementa** | [`CONTRATO_MQTT.md`](../../docs/CONTRATO_MQTT.md) v4.0 |
@@ -22,10 +22,11 @@ Mide la concentración de CO2 del aire cada 10 segundos y la manda a AURA. Los L
 | Componente | Modelo | Conexión |
 |---|---|---|
 | Placa | ESP32-C3 SuperMini, `hw_id` `mac-907069abbfe4` (herramientas/leer_mac) | — |
-| Sensor de CO2 | MH-Z19C (NDIR, 0 a 5000 ppm), UART a 9600 baudios | sensor TX (verde) → GPIO3, sensor RX (azul) → GPIO4, Vin (rojo) → 5 V, GND (negro) → GND |
+| Sensor de CO2 | MH-Z19C (NDIR, 400 a 5000 ppm), UART a 9600 baudios | sensor TX (verde) → GPIO3, sensor RX (azul) → GPIO4, Vin (rojo) → 5 V, GND (negro) → GND |
 | LED verde | LED + resistencia de 220 ohm | GPIO5 |
 | LED amarillo | LED + resistencia de 220 ohm | GPIO6 |
 | LED rojo | LED + resistencia de 220 ohm | GPIO7 |
+| Zumbador | módulo activo (suena con 0 V en la señal), alimentado a 3,3 V | GPIO10 |
 
 ## Lo que envía a AURA
 
@@ -33,7 +34,7 @@ Cada medición es un campo de `values` (contrato §3.1). Un sensor que falla no 
 
 | Campo | Unidad | Rango válido | Cada cuánto |
 |---|---|---|---|
-| `co2_ppm` | ppm | 0 a 5000 | 10 s, configurable |
+| `co2_ppm` | ppm | 400 a 5000 | 10 s, configurable |
 
 Durante los primeros 3 minutos desde el arranque el sensor se calienta: no se publica nada y el LED amarillo parpadea.
 
@@ -48,8 +49,9 @@ Parámetros que acepta `set_config` (contrato §3.3), y el valor que usa esta pl
 | `intervalo_s` | 5 a 3600 | 10 |
 | `atencion_ppm` | 400 a 5000 | 1000 |
 | `alto_ppm` | 400 a 5000 | 1500 |
+| `sonido` | 0 o 1 | 1 |
 
-`atencion_ppm` tiene que ser menor que `alto_ppm`. LED verde hasta `atencion_ppm`, amarillo hasta `alto_ppm`, rojo por encima.
+`atencion_ppm` tiene que ser menor que `alto_ppm`. LED verde hasta `atencion_ppm`, amarillo hasta `alto_ppm`, rojo por encima. El zumbador (`sonido` en 1) hace 2 pitidos cortos al terminar el calentamiento y 3 pitidos cuando el CO2 pasa a rojo; mientras siga en rojo, se repite cada 60 segundos. Con `sonido` en 0 queda en silencio.
 
 ## Compilar y probar
 
@@ -60,6 +62,6 @@ Parámetros que acepta `set_config` (contrato §3.3), y el valor que usa esta pl
 
 ## Notas
 
-- La calibración automática (ABC) del sensor está apagada, porque en un aula no hay 24 h seguidas de aire exterior. Pendiente: calibrar el cero a 400 ppm al aire libre.
+- La calibración automática (ABC) del sensor está apagada, porque en un aula no hay 24 h seguidas de aire exterior. El cero se calibró a mano al aire libre (~400 ppm).
 - Usar un cable USB de datos para grabar la placa; un cable solo de carga no la hace aparecer como puerto.
 - La temperatura interna del MH-Z19C no se publica: no es una temperatura ambiente confiable.
