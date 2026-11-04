@@ -11,13 +11,17 @@
  *    §3.1) y se avisa con nodo_mesh_sonda() (alerta "sensor", una sola vez por cambio).
  *  - LEDs locales: verde hasta atencion_ppm, amarillo hasta alto_ppm, rojo por encima.
  *    La alerta por umbral hacia AURA la calcula el conector en Python, no la placa.
- *  - Parámetros (set_config, validados y guardados en NVS): intervalo_s, atencion_ppm, alto_ppm.
+ *  - Zumbador activo en GPIO10: 3 pitidos al pasar a rojo (CO2 > alto_ppm) y de nuevo cada
+ *    60 s mientras siga en rojo. Se silencia con el parámetro sonido = 0.
+ *  - Parámetros (set_config, validados y guardados en NVS): intervalo_s, atencion_ppm, alto_ppm,
+ *    sonido (0 o 1).
  *
  * Conexiones (por número de GPIO):
  *   MH-Z19C rojo  (Vin) -> 5V          MH-Z19C negro (GND) -> GND
  *   MH-Z19C verde (TX)  -> GPIO3 (RX de la placa)
  *   MH-Z19C azul  (RX)  -> GPIO4 (TX de la placa)
  *   LED verde -> GPIO5, amarillo -> GPIO6, rojo -> GPIO7 (cada uno con 220 ohm a GND)
+ *   Zumbador activo: + -> GPIO10, - -> GND
  *
  * MESH_ID y MESH_AP_PASS: en config_local.h (igual que en el gateway y el concentrador).
  */
@@ -46,6 +50,13 @@
 #define PIN_LED_VERDE       GPIO_NUM_5
 #define PIN_LED_AMARILLO    GPIO_NUM_6
 #define PIN_LED_ROJO        GPIO_NUM_7
+#define PIN_ZUMBADOR        GPIO_NUM_10       /* zumbador ACTIVO (suena solo con ponerle tensión) */
+#define ZUMBADOR_ACTIVO_EN_BAJO 1         /* poné 1 si el zumbador suena cuando el pin está en 0 (módulos "low level trigger") */
+#define ZUMBADOR_ON   (ZUMBADOR_ACTIVO_EN_BAJO ? 0 : 1)
+#define ZUMBADOR_OFF  (ZUMBADOR_ACTIVO_EN_BAJO ? 1 : 0)
+#define AVISO_REPETIR_MS    60000             /* mientras siga en rojo, vuelve a sonar cada 60 s */
+#define PITIDOS_POR_AVISO   3
+#define AVISO_LISTO_PITIDOS 2                 /* "listo": termina el precalentamiento */
 
 #define PRECALENTAMIENTO_MS 180000            /* el MH-Z19C necesita ~3 min */
 #define CO2_MIN_PPM         0
@@ -63,11 +74,13 @@
 #define ALTO_DEFECTO        1500
 #define UMBRAL_MIN_PPM      400
 #define UMBRAL_MAX_PPM      5000
+#define SONIDO_DEFECTO      1
 
 static const char *TAG = "CO2";
 static volatile uint32_t intervalo_s  = INTERVALO_DEFECTO_S;
 static volatile uint32_t atencion_ppm = ATENCION_DEFECTO;
 static volatile uint32_t alto_ppm     = ALTO_DEFECTO;
+static volatile uint32_t sonido       = SONIDO_DEFECTO;
 
 /* Comandos del MH-Z19: lectura de CO2 y calibración automática (ABC) apagada.
    Checksum = 0xFF - (suma de los bytes 1 a 7) + 1. */
@@ -131,6 +144,33 @@ static void leds_segun_co2(int co2)
                co2 > (int)alto_ppm);
 }
 
+/* ---------- Zumbador ---------- */
+static bool en_rojo = false;
+static TickType_t ultimo_aviso = 0;
+
+static void zumbador_pitar(int veces)
+{
+    for (int i = 0; i < veces; i++) {
+        gpio_set_level(PIN_ZUMBADOR, ZUMBADOR_ON);
+        vTaskDelay(pdMS_TO_TICKS(150));
+        gpio_set_level(PIN_ZUMBADOR, ZUMBADOR_OFF);
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+}
+
+/* Suena al pasar a rojo y se repite cada AVISO_REPETIR_MS mientras siga en rojo.
+   Con co2 < 0 (sensor sin lectura) se reinicia el estado, sin sonar. */
+static void zumbador_segun_co2(int co2)
+{
+    bool rojo = (co2 >= 0) && (co2 > (int)alto_ppm);
+    TickType_t ahora = xTaskGetTickCount();
+    if (rojo && sonido && (!en_rojo || (ahora - ultimo_aviso) >= pdMS_TO_TICKS(AVISO_REPETIR_MS))) {
+        zumbador_pitar(PITIDOS_POR_AVISO);
+        ultimo_aviso = ahora;
+    }
+    en_rojo = rojo;
+}
+
 /* ---------- Lo que aporta el dispositivo a nodo_mesh ---------- */
 static bool leer_param(const cJSON *params, const char *nombre, uint32_t min, uint32_t max,
                        uint32_t *valor, bool *presente, char *motivo, size_t tam)
@@ -154,17 +194,19 @@ static bool aplicar_config(const cJSON *params, char *motivo, size_t tam)
     const cJSON *p;
     cJSON_ArrayForEach(p, params) {
         if (strcmp(p->string, "intervalo_s") != 0 && strcmp(p->string, "atencion_ppm") != 0 &&
-            strcmp(p->string, "alto_ppm") != 0 && strcmp(p->string, "aula") != 0) {
+            strcmp(p->string, "alto_ppm") != 0 && strcmp(p->string, "sonido") != 0 &&
+            strcmp(p->string, "aula") != 0) {
             snprintf(motivo, tam, "parametro_desconocido");
             return false;
         }
     }
 
-    uint32_t iv = intervalo_s, at = atencion_ppm, al = alto_ppm;
-    bool hay_iv, hay_at, hay_al;
+    uint32_t iv = intervalo_s, at = atencion_ppm, al = alto_ppm, so = sonido;
+    bool hay_iv, hay_at, hay_al, hay_so;
     if (!leer_param(params, "intervalo_s", INTERVALO_MIN_S, INTERVALO_MAX_S, &iv, &hay_iv, motivo, tam) ||
         !leer_param(params, "atencion_ppm", UMBRAL_MIN_PPM, UMBRAL_MAX_PPM, &at, &hay_at, motivo, tam) ||
-        !leer_param(params, "alto_ppm", UMBRAL_MIN_PPM, UMBRAL_MAX_PPM, &al, &hay_al, motivo, tam)) {
+        !leer_param(params, "alto_ppm", UMBRAL_MIN_PPM, UMBRAL_MAX_PPM, &al, &hay_al, motivo, tam) ||
+        !leer_param(params, "sonido", 0, 1, &so, &hay_so, motivo, tam)) {
         return false;
     }
     if (at >= al) {                        /* se mira el resultado final, no solo lo que llegó */
@@ -175,17 +217,19 @@ static bool aplicar_config(const cJSON *params, char *motivo, size_t tam)
     intervalo_s = iv;
     atencion_ppm = at;
     alto_ppm = al;
-    if (hay_iv || hay_at || hay_al) {
+    sonido = so;
+    if (hay_iv || hay_at || hay_al || hay_so) {
         nvs_handle_t h;
         if (nvs_open("co2", NVS_READWRITE, &h) == ESP_OK) {
             nvs_set_u32(h, "intervalo_s", iv);
             nvs_set_u32(h, "atencion_ppm", at);
             nvs_set_u32(h, "alto_ppm", al);
+            nvs_set_u32(h, "sonido", so);
             nvs_commit(h);
             nvs_close(h);
         }
-        ESP_LOGI(TAG, "Config: intervalo %lu s, atencion %lu ppm, alto %lu ppm",
-                 (unsigned long)iv, (unsigned long)at, (unsigned long)al);
+        ESP_LOGI(TAG, "Config: intervalo %lu s, atencion %lu ppm, alto %lu ppm, sonido %lu",
+                 (unsigned long)iv, (unsigned long)at, (unsigned long)al, (unsigned long)so);
     }
     return true;
 }
@@ -195,6 +239,7 @@ static void describir_config(cJSON *config)
     cJSON_AddNumberToObject(config, "intervalo_s", intervalo_s);
     cJSON_AddNumberToObject(config, "atencion_ppm", atencion_ppm);
     cJSON_AddNumberToObject(config, "alto_ppm", alto_ppm);
+    cJSON_AddNumberToObject(config, "sonido", sonido);
 }
 
 static bool ejecutar_comando(const char *comando, const cJSON *params, bool local, char *motivo, size_t tam)
@@ -218,16 +263,21 @@ static void tarea_medicion(void *arg)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     leds_poner(false, false, false);
+    if (sonido) {
+        zumbador_pitar(AVISO_LISTO_PITIDOS);   /* 2 pitidos: el sensor ya está caliente y empieza a medir */
+    }
 
     while (true) {
         int co2 = sensor_leer_co2();
         if (co2 < 0) {
             nodo_mesh_sonda("co2_ppm", false, "sin_respuesta");
             leds_poner(false, false, false);
+            zumbador_segun_co2(-1);
             ESP_LOGW(TAG, "El MH-Z19C no responde: revisar cables TX/RX y los 5V");
         } else if (co2 < CO2_MIN_PPM || co2 > CO2_MAX_PPM) {
             nodo_mesh_sonda("co2_ppm", false, "fuera_de_rango");
             leds_poner(false, false, false);
+            zumbador_segun_co2(-1);
             ESP_LOGW(TAG, "CO2 fuera de rango: %d ppm", co2);
         } else {
             nodo_mesh_sonda("co2_ppm", true, NULL);
@@ -237,6 +287,7 @@ static void tarea_medicion(void *arg)
             nodo_mesh_medicion(v);
             cJSON_Delete(v);
             ESP_LOGI(TAG, "CO2: %d ppm", co2);
+            zumbador_segun_co2(co2);
         }
         /* Se espera en tramos cortos: si set_config cambia el intervalo, se nota enseguida */
         TickType_t inicio = xTaskGetTickCount();
@@ -262,6 +313,10 @@ void app_main(void)
     }
     leds_poner(false, false, false);
 
+    gpio_reset_pin(PIN_ZUMBADOR);
+    gpio_set_direction(PIN_ZUMBADOR, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_ZUMBADOR, ZUMBADOR_OFF);
+
     /* Configuración guardada: solo se usa si los tres valores siguen siendo válidos juntos */
     nvs_handle_t h;
     if (nvs_open("co2", NVS_READONLY, &h) == ESP_OK) {
@@ -273,6 +328,10 @@ void app_main(void)
             intervalo_s = iv;
             atencion_ppm = at;
             alto_ppm = al;
+        }
+        uint32_t so;
+        if (nvs_get_u32(h, "sonido", &so) == ESP_OK && so <= 1) {
+            sonido = so;
         }
         nvs_close(h);
     }
