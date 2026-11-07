@@ -11,8 +11,11 @@
  *    §3.1) y se avisa con nodo_mesh_sonda() (alerta "sensor", una sola vez por cambio).
  *  - LEDs locales: verde hasta atencion_ppm, amarillo hasta alto_ppm, rojo por encima.
  *    La alerta por umbral hacia AURA la calcula el conector en Python, no la placa.
- *  - Zumbador activo en GPIO10: 3 pitidos al pasar a rojo (CO2 > alto_ppm) y de nuevo cada
- *    60 s mientras siga en rojo. Se silencia con el parámetro sonido = 0.
+ *  - Zumbador en GPIO10 (módulo activo en bajo, suena con 0 V): 3 pitidos al pasar a rojo
+ *    (CO2 > alto_ppm), que se repiten mientras siga en rojo cuando pasaron 60 s o más (se mira
+ *    en cada medición, así que depende de intervalo_s). En cada arranque suenan además 2 pitidos
+ *    al terminar el calentamiento.
+ *    sonido = 0 lo silencia y queda guardado en NVS hasta que set_config lo cambie.
  *  - Parámetros (set_config, validados y guardados en NVS): intervalo_s, atencion_ppm, alto_ppm,
  *    sonido (0 o 1).
  *
@@ -20,8 +23,8 @@
  *   MH-Z19C rojo  (Vin) -> 5V          MH-Z19C negro (GND) -> GND
  *   MH-Z19C verde (TX)  -> GPIO3 (RX de la placa)
  *   MH-Z19C azul  (RX)  -> GPIO4 (TX de la placa)
- *   LED verde -> GPIO5, amarillo -> GPIO6, rojo -> GPIO7 (cada uno con 220 ohm a GND)
- *   Zumbador activo: + -> GPIO10, - -> GND
+ *   LED verde -> GPIO5, rojo -> GPIO6, amarillo -> GPIO7 (cada uno con 220 ohm a GND)
+ *   Zumbador (módulo activo en bajo): VCC -> 3V3, I/O -> GPIO10, GND -> GND (con 5 V no se apaga)
  *
  * MESH_ID y MESH_AP_PASS: en config_local.h (igual que en el gateway y el concentrador).
  */
@@ -50,8 +53,8 @@
 #define PIN_LED_VERDE       GPIO_NUM_5
 #define PIN_LED_AMARILLO    GPIO_NUM_7
 #define PIN_LED_ROJO        GPIO_NUM_6
-#define PIN_ZUMBADOR        GPIO_NUM_10       /* zumbador ACTIVO (suena solo con ponerle tensión) */
-#define ZUMBADOR_ACTIVO_EN_BAJO 1         /* poné 1 si el zumbador suena cuando el pin está en 0 (módulos "low level trigger") */
+#define PIN_ZUMBADOR        GPIO_NUM_10       /* módulo activo en bajo: suena con el pin en 0 V */
+#define ZUMBADOR_ACTIVO_EN_BAJO 1         /* 1 = nuestro módulo (low level trigger); con uno activo en alto, poné 0 */
 #define ZUMBADOR_ON   (ZUMBADOR_ACTIVO_EN_BAJO ? 0 : 1)
 #define ZUMBADOR_OFF  (ZUMBADOR_ACTIVO_EN_BAJO ? 1 : 0)
 #define AVISO_REPETIR_MS    60000             /* mientras siga en rojo, vuelve a sonar cada 60 s */
@@ -59,7 +62,7 @@
 #define AVISO_LISTO_PITIDOS 2                 /* "listo": termina el precalentamiento */
 
 #define PRECALENTAMIENTO_MS 180000            /* el MH-Z19C necesita ~3 min */
-#define CO2_MIN_PPM         0
+#define CO2_MIN_PPM         400
 #define CO2_MAX_PPM         5000              /* rango del MH-Z19C estándar */
 
 /* Potencia en pasos de 0,25 dBm. La C3 SuperMini tiene la antena mal adaptada: ver la guía
@@ -102,8 +105,21 @@ static void sensor_iniciar(void)
     ESP_ERROR_CHECK(uart_param_config(SENSOR_UART, &cfg));
     ESP_ERROR_CHECK(uart_set_pin(SENSOR_UART, SENSOR_TX_PIN, SENSOR_RX_PIN,
                                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
-    /* En un aula (no 24 h seguidas) la calibración automática da lecturas bajas */
-    uart_write_bytes(SENSOR_UART, CMD_ABC_OFF, sizeof(CMD_ABC_OFF));
+}
+
+/* Apaga la calibración automática (ABC): en un aula, que no está 24 h seguidas con aire
+   exterior, da lecturas bajas. Se manda con el sensor ya caliente. El manual del MH-Z19C dice
+   que este comando no devuelve respuesta ("No return value") y no tiene un comando para leer
+   el estado del ABC, así que no se puede confirmar leyendo: como es idempotente, se manda
+   varias veces para que no se pierda. */
+static void sensor_abc_apagar(void)
+{
+    for (int i = 0; i < 3; i++) {
+        uart_write_bytes(SENSOR_UART, CMD_ABC_OFF, sizeof(CMD_ABC_OFF));
+        uart_wait_tx_done(SENSOR_UART, pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    ESP_LOGI(TAG, "Calibración automática (ABC) apagada: comando enviado 3 veces");
 }
 
 /* Devuelve el CO2 en ppm, o -1 si no hubo respuesta, la trama es corta o el checksum no cierra. */
@@ -263,6 +279,7 @@ static void tarea_medicion(void *arg)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     leds_poner(false, false, false);
+    sensor_abc_apagar();   /* con el sensor ya caliente */
     if (sonido) {
         zumbador_pitar(AVISO_LISTO_PITIDOS);   /* 2 pitidos: el sensor ya está caliente y empieza a medir */
     }

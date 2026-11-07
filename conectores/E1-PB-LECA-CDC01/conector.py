@@ -1,12 +1,15 @@
-"""Conector de E1-PB-LECA-AMB01 — CO2 del laboratorio (MH-Z19C sobre ESP-WIFI-MESH).
+"""Conector de E1-PB-LECA-CDC01 — CO2 del laboratorio (MH-Z19C sobre ESP-WIFI-MESH).
 
 La placa manda solo co2_ppm. El conector lo guarda y avisa cuando la calidad del aire cambia
-de nivel, una vez por cambio y no en cada medición:
+de nivel, una vez por cambio y no en cada medición. Usa un solo tipo de alerta, aire_calidad,
+y la severidad dice en qué nivel está el aire:
 
-    verde     hasta ATENCION_PPM                    sin aviso
-    amarillo  de ATENCION_PPM a ALTO_PPM            aire_atencion (warning): conviene ventilar
-    rojo      más de ALTO_PPM                       aire_alto (high): aire de mala calidad
-    al bajar de nivel                               aviso info "volvió a ..."
+    verde     hasta ATENCION_PPM                    info: el aire volvió a lo normal
+    amarillo  de ATENCION_PPM a ALTO_PPM            warning: conviene ventilar
+    rojo      más de ALTO_PPM                       high: aire de mala calidad
+
+Como todos los avisos son del mismo tipo, cualquier recorrido de niveles queda coherente
+(verde, amarillo, rojo y de vuelta): al volver a verde siempre llega el info.
 
 Los umbrales son los mismos que usan los LEDs de la placa. Si alguien los cambia con set_config
 (atencion_ppm, alto_ppm), el conector usa los que reportó la placa (ctx.config_vigente()); si no
@@ -17,6 +20,7 @@ momento. Para saber en qué nivel estaba, mira la última medición guardada con
 """
 from aura_sdk import Conector
 
+TIPO_ALERTA = "aire_calidad"   # un solo tipo: la severidad dice el nivel
 ATENCION_PPM = 1000   # por encima, el aire merece ventilación (LED amarillo)
 ALTO_PPM = 1500       # por encima, el aire es de mala calidad (LED rojo)
 MIN_PPM, MAX_PPM = 400, 5000   # rango de set_config de la placa
@@ -57,13 +61,13 @@ class ConectorCO2(Conector):
             return
 
         if ahora == ROJO:
-            ctx.alertar("aire_alto", "high",
+            ctx.alertar(TIPO_ALERTA, "high",
                         f"CO2 alto: {co2} ppm (umbral {alto} ppm). Aire de mala calidad: ventilar ya")
-        elif ahora == AMARILLO and antes == VERDE:
-            ctx.alertar("aire_atencion", "warning",
-                        f"CO2 en {co2} ppm (atención desde {atencion} ppm). Conviene ventilar")
-        elif antes == ROJO:
-            resto = "sigue en atención" if ahora == AMARILLO else "aire normal"
-            ctx.alertar("aire_alto", "info", f"CO2 bajó a {co2} ppm: {resto}")
-        else:  # amarillo -> verde
-            ctx.alertar("aire_atencion", "info", f"CO2 volvió a {co2} ppm: aire normal")
+        elif ahora == AMARILLO:
+            if antes == ROJO:
+                texto = f"CO2 bajó a {co2} ppm: sigue en atención (desde {atencion} ppm). Conviene ventilar"
+            else:
+                texto = f"CO2 en {co2} ppm (atención desde {atencion} ppm). Conviene ventilar"
+            ctx.alertar(TIPO_ALERTA, "warning", texto)
+        else:
+            ctx.alertar(TIPO_ALERTA, "info", f"CO2 volvió a {co2} ppm: aire normal")
