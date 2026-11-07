@@ -48,8 +48,8 @@
 #define SENSOR_RX_PIN       GPIO_NUM_3        /* <- TX del sensor (verde) */
 #define SENSOR_TX_PIN       GPIO_NUM_4        /* -> RX del sensor (azul) */
 #define PIN_LED_VERDE       GPIO_NUM_5
-#define PIN_LED_AMARILLO    GPIO_NUM_6
-#define PIN_LED_ROJO        GPIO_NUM_7
+#define PIN_LED_AMARILLO    GPIO_NUM_7
+#define PIN_LED_ROJO        GPIO_NUM_6
 #define PIN_ZUMBADOR        GPIO_NUM_10       /* zumbador ACTIVO (suena solo con ponerle tensión) */
 #define ZUMBADOR_ACTIVO_EN_BAJO 1         /* poné 1 si el zumbador suena cuando el pin está en 0 (módulos "low level trigger") */
 #define ZUMBADOR_ON   (ZUMBADOR_ACTIVO_EN_BAJO ? 0 : 1)
