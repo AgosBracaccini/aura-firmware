@@ -23,9 +23,9 @@ Mide la concentración de CO2 del aire cada 10 segundos y la manda a AURA. Los L
 |---|---|---|
 | Placa | ESP32-C3 SuperMini, `hw_id` `mac-907069abbfe4` (herramientas/leer_mac) | — |
 | Sensor de CO2 | MH-Z19C (NDIR, 400 a 5000 ppm), UART a 9600 baudios | sensor TX (verde) → GPIO3, sensor RX (azul) → GPIO4, Vin (rojo) → 5 V, GND (negro) → GND |
-| LED verde | LED + resistencia de 220 ohm | GPIO5 |
-| LED amarillo | LED + resistencia de 220 ohm | GPIO7 |
-| LED rojo | LED + resistencia de 220 ohm | GPIO6 |
+| LED verde | LED + resistencia de 220 ohm | GPIO7 |
+| LED amarillo | LED + resistencia de 220 ohm | GPIO6 |
+| LED rojo | LED + resistencia de 220 ohm | GPIO5 |
 | Zumbador | módulo activo en bajo (suena con 0 V en la señal), alimentado a 3,3 V (con 5 V no se apaga) | GPIO10 |
 
 ## Lo que envía a AURA

@@ -23,7 +23,7 @@
  *   MH-Z19C rojo  (Vin) -> 5V          MH-Z19C negro (GND) -> GND
  *   MH-Z19C verde (TX)  -> GPIO3 (RX de la placa)
  *   MH-Z19C azul  (RX)  -> GPIO4 (TX de la placa)
- *   LED verde -> GPIO5, rojo -> GPIO6, amarillo -> GPIO7 (cada uno con 220 ohm a GND)
+ *   LED verde -> GPIO7, amarillo -> GPIO6, rojo -> GPIO5 (cada uno con 220 ohm a GND)
  *   Zumbador (módulo activo en bajo): VCC -> 3V3, I/O -> GPIO10, GND -> GND (con 5 V no se apaga)
  *
  * MESH_ID y MESH_AP_PASS: en config_local.h (igual que en el gateway y el concentrador).
@@ -50,9 +50,9 @@
 #define SENSOR_UART         UART_NUM_1
 #define SENSOR_RX_PIN       GPIO_NUM_3        /* <- TX del sensor (verde) */
 #define SENSOR_TX_PIN       GPIO_NUM_4        /* -> RX del sensor (azul) */
-#define PIN_LED_VERDE       GPIO_NUM_5
-#define PIN_LED_AMARILLO    GPIO_NUM_7
-#define PIN_LED_ROJO        GPIO_NUM_6
+#define PIN_LED_VERDE       GPIO_NUM_7
+#define PIN_LED_AMARILLO    GPIO_NUM_6
+#define PIN_LED_ROJO        GPIO_NUM_5
 #define PIN_ZUMBADOR        GPIO_NUM_10       /* módulo activo en bajo: suena con el pin en 0 V */
 #define ZUMBADOR_ACTIVO_EN_BAJO 1         /* 1 = nuestro módulo (low level trigger); con uno activo en alto, poné 0 */
 #define ZUMBADOR_ON   (ZUMBADOR_ACTIVO_EN_BAJO ? 0 : 1)
